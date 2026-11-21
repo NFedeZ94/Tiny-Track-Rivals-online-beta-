@@ -1,0 +1,10 @@
+services:
+  - type: web
+    name: tiny-track-rivals-beta-test
+    runtime: docker
+    plan: free
+    dockerfilePath: ./Dockerfile
+    healthCheckPath: /health
+    envVars:
+      - key: TTR_ALLOWED_ORIGINS
+        value: https://nfedez94.github.io

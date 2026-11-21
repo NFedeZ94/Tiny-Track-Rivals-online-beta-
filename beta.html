@@ -1,0 +1,41 @@
+<!DOCTYPE html><html lang="it"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover,user-scalable=no">
+<title>Tiny Track Rivals · Beta Server Test</title>
+<style>
+:root{color-scheme:dark;font-family:system-ui,-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif}
+*{box-sizing:border-box}body{background:#10182f;color:#f6f7ff;margin:0;overflow:hidden;touch-action:manipulation}
+#game{width:100vw;height:100dvh;display:block;background:#d0a9a4;touch-action:none}
+#hud{position:absolute;top:max(7px,env(safe-area-inset-top));left:max(8px,env(safe-area-inset-left));right:max(8px,env(safe-area-inset-right));display:none;align-items:center;justify-content:space-between;gap:4px;pointer-events:none}
+.huditem{padding:4px 7px;border-radius:7px;background:rgba(10,17,39,.80);color:white;font-size:clamp(10px,2.05vw,13px);white-space:nowrap;max-width:40vw;text-overflow:ellipsis;overflow:hidden}
+.huditem b{color:#90e7ff}#stats{position:absolute;top:44px;right:11px;text-align:right;background:rgba(8,17,34,.68);font-size:10px;padding:5px 7px;border-radius:8px;display:none;pointer-events:none}
+#controls{position:absolute;bottom:max(8px,env(safe-area-inset-bottom));left:0;right:0;display:none;align-items:flex-end;justify-content:space-between;padding:0 max(18px,env(safe-area-inset-left)) 0 max(18px,env(safe-area-inset-right));pointer-events:none}
+.group{display:flex;gap:10px}.touch{pointer-events:auto;touch-action:none;user-select:none;appearance:none;border:1px solid rgba(255,255,255,.42);background:rgba(15,30,55,.70);box-shadow:0 3px 10px #0004;color:white;border-radius:18px;font-weight:800;font-size:23px;width:clamp(54px,14vw,88px);height:clamp(50px,14vw,78px)}
+.touch:active,.touch.held{background:rgba(50,140,220,.84)}#itemButton{font-size:17px;border-color:#f9c679}#brakeButton{font-size:14px;color:#ffe6af}
+#overlay{position:absolute;inset:0;background:radial-gradient(ellipse at 50% 40%,#1c3055f7,#090e21fa);display:flex;align-items:center;justify-content:center;padding:14px;overflow:auto}
+#panel{width:min(100%,560px);max-height:calc(100dvh - 28px);overflow:auto;background:#182544;border:1px solid #39507c;border-radius:16px;padding:16px 20px 18px;box-shadow:0 22px 45px #0008}
+header{display:flex;align-items:center;justify-content:space-between}h1{font-size:clamp(20px,5vw,28px);line-height:1.1;margin:4px 0 2px}.mark{font-size:11px;color:#88b5f7;letter-spacing:1.5px;font-weight:800}
+p{font-size:13px;color:#c4d5f2;line-height:1.35;margin:8px 0 12px}.row{display:flex;gap:9px;flex-wrap:wrap;margin:7px 0}label{display:flex;flex-direction:column;gap:4px;color:#d2e0ff;font-size:12px;flex:1;min-width:120px}
+input,select{appearance:none;background:#0b1931;border:1px solid #516793;color:#fff;border-radius:9px;padding:9px 11px;font:14px system-ui;width:100%;min-height:38px}
+.btn{appearance:none;background:#1e9dba;color:#06182e;font-weight:850;border:0;border-radius:9px;padding:9px 12px;min-height:38px;font-size:13px;cursor:pointer}.btn:nth-child(2){background:#c1a75d}.btn.secondary{background:#293d65;color:#f1f7ff}.btn:disabled{opacity:.4}
+#status{font-size:12px;color:#e5d899;margin-top:10px;min-height:30px}#members{display:flex;flex-wrap:wrap;gap:5px;margin:5px 0}#members span{padding:3px 6px;border-radius:6px;background:#2c4168;font-size:11px}#members .ready{background:#145c50}#roomCode{font-size:19px;font-weight:800;letter-spacing:2px;color:#a9e9ff}
+.small{font-size:11px;color:#96abd0}.badge{font-size:10px;background:#7a5e14;color:white;border-radius:6px;padding:4px 6px}#summary{position:absolute;top:25%;left:18%;width:64%;text-align:center;background:#071020df;border:1px solid #829bc4;border-radius:12px;padding:14px;display:none;max-height:55%;overflow:auto;font-size:13px}
+#summary h2{margin:0 0 10px}#summary ol{text-align:left;max-width:280px;margin:auto}
+@media(max-width:600px){#panel{padding:14px}.touch{border-radius:14px}.group{gap:6px}#hud{gap:3px}.huditem{padding:4px 5px;font-size:9px}#stats{top:40px;font-size:9px}}
+@media(orientation:portrait){#hud,#controls{display:none!important}#rotate{display:block!important}}
+#rotate{display:none;position:absolute;top:3px;left:20px;right:20px;padding:4px;border-radius:7px;background:#07162bdf;text-align:center;color:white;font-size:12px;pointer-events:none}
+</style></head><body>
+<canvas id="game" aria-label="Pista di prova Online Beta"></canvas>
+<div id="hud"><div class="huditem" id="pos">POS —</div><div class="huditem" id="onlineHud">ONLINE · — · RTT —</div><div class="huditem" id="lap">GIRO — / 3</div><div class="huditem" id="time">TEMPO 0:00</div><div class="huditem" id="pinghud">30 Hz</div></div>
+<div id="stats">FPS — · JITTER — ms<br>SNAPSHOT — Hz · ACK —</div>
+<div id="controls"><div class="group"><button id="left" class="touch" aria-label="Sterza a sinistra">◀</button><button id="right" class="touch" aria-label="Sterza a destra">▶</button></div><div class="group"><button id="brakeButton" class="touch" aria-label="Frena">FRENO</button><button id="itemButton" class="touch" aria-label="Usa power-up">POWER</button></div></div>
+<div id="rotate">Per giocare ruota il telefono in orizzontale ↻</div>
+<div id="summary"><h2>🏁 GARA CONCLUSA</h2><ol id="finalResults"></ol><p>Prototipo tecnico: torna al menu per una nuova stanza.</p><button class="btn" id="back">Torna al menu</button></div>
+<div id="overlay"><section id="panel"><header><div><div class="mark">TINY TRACK RIVALS · ONLINE BETA</div><h1>Server autoritativo</h1></div><div class="badge">TEST TECNICO</div></header>
+<p>Qui la gara viene calcolata sul server, non dal telefono che crea la stanza. È un test di rete e fisica: la grafica è semplificata e alcuni ostacoli del gioco completo non sono ancora presenti.</p>
+<div class="row"><label>Nome pilota<input id="name" value="Pilota" maxlength="18"></label><label>Vettura<select id="car"><option value="0">Scatto GT</option><option value="1">Tuono V8</option><option value="2">Polvere X</option><option value="3">Lampo ZX</option><option value="4">Aero R</option></select></label><label>Posti<select id="capacity"><option value="2">2</option><option value="4">4</option><option value="6">6</option><option value="8">8</option></select></label></div>
+<div class="row"><button class="btn" id="create">Crea privata</button><button class="btn" id="public">Trova pubblica</button></div>
+<div class="row"><label>Codice stanza<input id="joinCode" maxlength="6" placeholder="ABC123" autocapitalize="characters"></label><button class="btn secondary" id="join">Entra con codice</button></div>
+<div id="roomCode"></div><div id="members"></div>
+<div class="row"><button class="btn" id="ready" disabled>Sono pronto</button><button class="btn" id="start" disabled>Avvia gara</button><button class="btn secondary" id="leave" disabled>Esci</button></div>
+<div id="status">Connetti per creare una stanza. Non usa il multiplayer Alpha.</div><div class="small">Server: <span id="serverUrl"></span> · Motore condiviso TTRCore · 30 Hz fisica / 20 Hz snapshot · 2–8 posti</div>
+</section></div>
+<script src="/beta.js" defer></script></body></html>
