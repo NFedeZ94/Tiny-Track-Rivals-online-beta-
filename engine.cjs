@@ -59,24 +59,39 @@ function makeContext(){
  context.window=context;
  return context;
 }
+// Wall-clock watchdogs are separate from the fixed 60 Hz simulation step.
+// Render's shared CPU can deschedule a process even when the engine is healthy.
+const WATCHDOG=Object.freeze({moduleMs:5000,liveMs:500,verificationMs:2000});
 function makeFactory(scripts){
- return config=>{const ctx=makeContext();for(const script of scripts)script.runInContext(ctx,{timeout:1000});
- // Garage visual function is defined in its geometry script. Replace only the renderer.
+ return (config,{verification=false}={})=>{
+ const ctx=makeContext();const track=config.track;
+ const phase=verification?'preflight':'live';
+ for(const [index,script] of scripts.entries()){
+  try{script.runInContext(ctx,{timeout:WATCHDOG.moduleMs});}
+  catch(e){throw Error(`[${phase}] ${track}: module ${MODULES[index]??index} failed (limit ${WATCHDOG.moduleMs}ms)`,{cause:e});}
+ }
  ctx.TTRGarageVisuals={render:()=>{}};
  const api=ctx.__TTRServer;if(!api)throw Error('No authoritative race API');
- const created=api.start(JSON.parse(JSON.stringify(config)));if(created.track!==config.track||created.carCount!==config.capacity)throw Error('Wrong initialized track or grid');
- const tick=new vm.Script('__TTRServer.step(__steps)');
- return {loaded:()=>api.loaded(),input:(slot,ctl)=>api.input(slot,ctl),item:slot=>api.item(slot),leave:slot=>api.leave(slot),step:n=>{ctx.__steps=n;tick.runInContext(ctx,{timeout:150});},state:()=>JSON.parse(JSON.stringify(api.state())),results:()=>JSON.parse(JSON.stringify(api.results()))};};
+ const created=api.start(JSON.parse(JSON.stringify(config)));if(created.track!==track||created.carCount!==config.capacity)throw Error('Wrong initialized track or grid');
+ const tick=new vm.Script('__TTRServer.step(__steps)',{filename:'authoritative-tick.cjs'});
+ const timeout=verification?WATCHDOG.verificationMs:WATCHDOG.liveMs;
+ return {loaded:()=>api.loaded(),input:(slot,ctl)=>api.input(slot,ctl),item:slot=>api.item(slot),leave:slot=>api.leave(slot),step:n=>{
+  ctx.__steps=n;
+  try{tick.runInContext(ctx,{timeout});}
+  catch(e){throw Error(`[${phase}] ${track}: simulation tick ${ctx.__tick}, batch ${n}, limit ${timeout}ms`,{cause:e});}
+ },state:()=>JSON.parse(JSON.stringify(api.state())),results:()=>JSON.parse(JSON.stringify(api.results()))};
+ };
 }
 function verify(factory){
  const results=[];
- for(const track of TRACKS){const members=[{slot:0,car:0,name:'A',ready:true,host:true},{slot:1,car:1,name:'B',ready:true,host:false}],sim=factory({track,capacity:4,members});
+ for(const track of TRACKS){const members=[{slot:0,car:0,name:'A',ready:true,host:true},{slot:1,car:1,name:'B',ready:true,host:false}],sim=factory({track,capacity:4,members},{verification:true});
+ console.log(`[preflight] testing ${track}`);
  const initial=sim.state();sim.step(12);if(sim.state().countdown!==initial.countdown)throw Error('Countdown advanced before load: '+track);
  sim.loaded();for(let i=0;i<600;i++){sim.input(0,{steer:0,gas:true,brake:false});sim.input(1,{steer:.2,gas:true,brake:false});sim.step(2);}
  const st=sim.state();if(st.trackId!==track||st.cars.length!==4||!st.cars.every(c=>[c.x,c.y,c.a,c.s,c.p].every(Number.isFinite))||st.time<15||!st.environment||st.environment.e<15||st.environment.n<1)throw Error('Invalid live simulation '+track);
  if(Math.hypot(st.cars[0].x-initial.cars[0].x,st.cars[0].y-initial.cars[0].y)<1&&st.cars[0].sr===0)throw Error('No human movement '+track);
  sim.leave(0);sim.input(1,{steer:0,gas:true,brake:false});sim.step(2);if(sim.state().tick<=st.tick)throw Error('Host departure stopped simulation '+track);
- results.push({track,tick:st.tick,events:st.environment.n,bytes:Buffer.byteLength(JSON.stringify(st))});}
+ results.push({track,tick:st.tick,events:st.environment.n,bytes:Buffer.byteLength(JSON.stringify(st))});console.log(`[preflight] PASS ${track}: ${st.tick} ticks, ${st.environment.n} events`);}
  return results;
 }
 module.exports={ROOT,REV,BUILD,TRACKS,MODULES,LEGACY_HASH,blobHash,patchLegacy,loadScripts,makeFactory,verify};
