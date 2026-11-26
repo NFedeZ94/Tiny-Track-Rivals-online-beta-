@@ -1,13 +1,9 @@
 {
   "name": "tiny-track-rivals-authoritative-beta",
   "private": true,
-  "version": "0.1.0",
-  "description": "Isolated Tiny Track Rivals authoritative WebSocket racing experiment",
-  "scripts": {
-    "start": "node server.js"
-  },
-  "engines": {
-    "node": ">=22"
-  },
+  "version": "0.1.49",
+  "description": "TTR authoritative shared game engine, full client v0.13.6.149",
+  "scripts": {"build":"node sync-engine.cjs", "start":"node server.js", "verify":"node -e \"const e=require('./engine.cjs');console.log(e.verify(e.makeFactory(e.loadScripts())))\""},
+  "engines": {"node": ">=22"},
   "license": "UNLICENSED"
 }
