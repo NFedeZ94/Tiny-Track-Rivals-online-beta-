@@ -36,7 +36,7 @@ function patchLegacy(s){
    input(slot,ctl){if(onlineSession.members[slot])onlineRemoteInputs[slot]={steer:ctl.steer,gas:ctl.gas,brake:ctl.brake,at:performance.now()};},
    item(slot){const c=race.cars[slot];if(onlineSession.allLoaded&&onlineSession.members[slot]&&c&&!c.done&&!race.finished&&race.countdown<=0)useItem(c);},
    leave(slot){onlineSession.members[slot]=null;delete onlineRemoteInputs[slot];if(race.player.id===slot){const next=onlineSession.members.find(Boolean);if(next)race.player=race.cars[next.slot];}},
-   step(n){for(let i=0;i<n&&!race.finished;i++){globalThis.__clock+=1000/60;update(1/60,false);globalThis.__tick++;}},
+   step(n){const costs=[];for(let i=0;i<n&&!race.finished;i++){const start=__wallNow();globalThis.__clock+=1000/60;update(1/60,false);globalThis.__tick++;costs.push(__wallNow()-start);}return costs;},
    state(){const s=onlineAuthoritativeState();s.tick=globalThis.__tick;return s;},
    results(){return race.cars.map(c=>({id:c.id,done:c.done,finishTime:c.finishTime??null}));}
  });
@@ -45,16 +45,20 @@ function patchLegacy(s){
 }
 function loadScripts(root=ROOT){
  const version=fs.readFileSync(path.join(root,'version.txt'),'utf8').trim();if(version!==BUILD)throw Error('Wrong engine source version '+version);
- return MODULES.map(name=>{const file=fs.readFileSync(path.join(root,'js',name));if(OVERLAYS[name]&&blobHash(file)!==OVERLAYS[name])throw Error('Overlay hash mismatch: '+name);if(name==='06-game-legacy.js'&&blobHash(file)!==LEGACY_HASH)throw Error('Legacy source hash differs from verified .153 overlay');return new vm.Script(name==='06-game-legacy.js'?patchLegacy(file.toString('utf8')):file.toString('utf8'),{filename:name});});
+ return MODULES.map(name=>{const file=fs.readFileSync(path.join(root,'js',name));if(OVERLAYS[name]&&blobHash(file)!==OVERLAYS[name])throw Error('Overlay hash mismatch: '+name);if(name==='06-game-legacy.js'&&blobHash(file)!==LEGACY_HASH)throw Error('Legacy source hash differs from verified .153 physics overlay');return new vm.Script(name==='06-game-legacy.js'?patchLegacy(file.toString('utf8')):file.toString('utf8'),{filename:name});});
 }
 function makeContext(){
  const noop=()=>{},canvas=Object.freeze({clearRect:noop});
  const element=()=>{const o={style:{},dataset:{},hidden:true,innerHTML:'',textContent:'',value:'',classList:{add:noop,remove:noop,toggle:noop,contains:()=>false},getContext:()=>canvas,addEventListener:noop,setAttribute:noop,append:noop,appendChild:noop,replaceChildren:noop,remove:noop,blur:noop,querySelectorAll:()=>[]};o.parentElement=o;o.querySelector=()=>o;o.closest=()=>o;return o;};
  const nodes=new Map(),document={body:element(),hidden:false,visibilityState:'visible',getElementById:id=>{if(!nodes.has(id))nodes.set(id,element());return nodes.get(id);},createElement:element,querySelector:element,querySelectorAll:()=>[],addEventListener:noop,hasFocus:()=>true};
  const muted={sfx:noop,music:noop,stopMusic:noop,syncEngine:noop,setRaceContext:noop,unlock:()=>Promise.resolve(false),status:()=>({muted:true}),getSettings:()=>({muted:true})};
- const context=vm.createContext({document,console,innerWidth:926,innerHeight:428,devicePixelRatio:1,localStorage:{getItem:()=>null,setItem:noop,removeItem:noop},addEventListener:noop,removeEventListener:noop,requestAnimationFrame:noop,cancelAnimationFrame:noop,setTimeout:noop,clearTimeout:noop,Audio:function(){},performance:{now:()=>context.__clock},__clock:0,__tick:0,
+ const context=vm.createContext({document,console,innerWidth:926,innerHeight:428,devicePixelRatio:1,localStorage:{getItem:()=>null,setItem:noop,removeItem:noop},addEventListener:noop,removeEventListener:noop,requestAnimationFrame:noop,cancelAnimationFrame:noop,setTimeout:noop,clearTimeout:noop,Audio:function(){},performance:{now:()=>context.__clock},__clock:0,__tick:0,__wallNow:()=>performance.now(),
  TTRSound:muted,TTRGameParts:{},TTRGameEffectsVisuals:{},TTRCanvasPrimitives:{},TTRBoxVisuals:{render:noop},TTRDeskVisuals:{render:noop},TTRBathVisuals:{render:noop},TTRHudVisuals:{render:noop},TTRMinimapVisuals:{createRaceMiniBase:()=>null},TTRI18N:{t:k=>k,getLang:()=> 'it'},TTRModeTrial:{setTrack:noop},TTRModeElimination:{create:()=>({})},TTRRaceResults:{create:()=>({showResults:noop,cancelMusicTimer:noop})},TTRVehicleVisuals:{TTRShowroomStarts:{},TTRShowroom60:{}}},{name:'TTR race engine',codeGeneration:{strings:false,wasm:false}});
  context.window=context;
+ // Contextified global lookups are costly in tight physics loops. Bind only the
+ // original, immutable-per-race references, without replacing any math or RNG.
+ // All game modules remain pinned, unchanged; the clock stays deterministic.
+ new vm.Script('const Math=globalThis.Math, Number=globalThis.Number, Object=globalThis.Object, Array=globalThis.Array, Map=globalThis.Map, Set=globalThis.Set, WeakMap=globalThis.WeakMap, JSON=globalThis.JSON;',{filename:'engine-intrinsics.cjs'}).runInContext(context,{timeout:1000});
  return context;
 }
 // Wall-clock watchdogs are separate from the fixed 60 Hz simulation step.
@@ -75,9 +79,9 @@ function makeFactory(scripts){
  const timeout=verification?WATCHDOG.verificationMs:WATCHDOG.liveMs;
  return {loaded:()=>api.loaded(),input:(slot,ctl)=>api.input(slot,ctl),item:slot=>api.item(slot),leave:slot=>api.leave(slot),step:n=>{
   ctx.__steps=n;
-  try{tick.runInContext(ctx,{timeout});}
+  try{return tick.runInContext(ctx,{timeout});}
   catch(e){throw Error(`[${phase}] ${track}: simulation tick ${ctx.__tick}, batch ${n}, limit ${timeout}ms`,{cause:e});}
- },state:()=>JSON.parse(JSON.stringify(api.state())),results:()=>JSON.parse(JSON.stringify(api.results()))};
+ },snapshotState:()=>api.state(),state:()=>JSON.parse(JSON.stringify(api.state())),results:()=>JSON.parse(JSON.stringify(api.results()))};
  };
 }
 function verify(factory){
