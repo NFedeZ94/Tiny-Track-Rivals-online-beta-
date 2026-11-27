@@ -106,7 +106,7 @@
   const d=K.angleDiff(Math.atan2(target.y-c.y,target.x-c.x),c.a),steer=K.clamp(d*(hard?3.7:3.3),-1,1);
   if(c.reverseRecovery>0)return {steer:-steer||1,gas:false,brake:true};
   const bend=Math.max(Math.abs(K.angleDiff(D.tangent(p+.017),D.tangent(p))),Math.abs(K.angleDiff(D.tangent(p+.029),D.tangent(p+.012))));
-  const cap=c.profile.max*s.pace*(c.boost>0?1.42:1);let desired=cap*(1-K.clamp((bend-.20)*(hard?.34:.63),0,.6));
+  const cap=c.profile.max*(c.boost>0?1.42:1);let desired=cap*(1-K.clamp((bend-.20)*(hard?.34:.63),0,.6));
   if(Math.abs(d)>.30)desired=Math.min(desired,cap*(1-K.clamp((Math.abs(d)-.25)*(hard?.43:.68),0,.65)));
   if(lead&&gap<60&&!(c.aiPassUntil>race.time))desired=Math.min(desired,Math.max(70,lead.speed));if(c.onBridge||c.deskTry){const b=D.shortcutNearest(c);desired=Math.min(desired,cap*(hard?.98:.94),b.t>.74&&(b.distance>30||Math.abs(d)>.25)?205:hard?250:235);}else if(brushApproach){const q=D.brushContact(c),returning=Math.abs(q.side)>24||Math.abs(d)>.22;desired=Math.min(desired,returning?105:hard?245:195,c.bathRejoinUntil>race.time?125:Infinity);const followGap=hard?105:135;if(lead&&gap<followGap)desired=Math.min(desired,Math.max(0,lead.speed-(followGap-gap)*2.5));}else if(near.distance>95)desired=Math.min(desired,110);if(oil.slow)desired=Math.min(desired,cap*(brushApproach?.55:c.onBridge?.60:hard?.80:.65));
   const brake=c.speed>desired+(brushApproach?5:12)&&c.speed>(brushApproach?8:70);return {steer,gas:!brake&&(desired>=cap*(hard?.94:.96)||c.speed<desired+(hard&&!brushApproach?10:5)),brake};

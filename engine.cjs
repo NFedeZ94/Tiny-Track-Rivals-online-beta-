@@ -1,29 +1,25 @@
 'use strict';
-// TTR server-side adapter: executes the exact published .148 race engine, in a
+// TTR server-side adapter: executes the pinned .148 modules + byte-identical .153 overlays, in a
 // separate VM per room, with presentation disabled. No browser or player host.
 const fs=require('node:fs'),path=require('node:path'),vm=require('node:vm'),crypto=require('node:crypto');
 const ROOT=path.join(__dirname,'.ttr-engine');
 const REV='c8b05794a344fab64f83d2f5ad6ca66e530f2b27',BUILD='0.13.6.148';
 const TRACKS=Object.freeze(['colazione-turbo','box-di-biliardo','desk-drift','bagno-sprint','garage-grid']);
-const MODULES=Object.freeze(['01-core.js','07a-race-grid-logic.js','07b-race-powerups-logic.js','07c-race-driver-logic.js','07d-race-safety-logic.js','08a-race-progress-logic.js','08b-race-timing-logic.js','09a-race-cpu-logic.js','09b-race-oil-logic.js','09c-race-pickup-logic.js','09d-race-collision-logic.js','11b-race-flow.js','15-box-biliardo-track.js','15b-box-biliardo-rules.js','16-desk-drift-track.js','20-garage-grid.js','16b-desk-drift-rules.js','17-bagno-sprint-track.js','17b-bagno-sprint-rules.js','18-diagnostics-history.js','19-environment-events.js','06-game-legacy.js']);
+const MODULES=Object.freeze(['01-core.js','07a-race-grid-logic.js','07b-race-powerups-logic.js','07c-race-driver-logic.js','07d-race-safety-logic.js','08a-race-progress-logic.js','08b-race-timing-logic.js','09a-race-cpu-logic.js','09b-race-oil-logic.js','09c-race-pickup-logic.js','09d-race-collision-logic.js','11b-race-flow.js','15-box-biliardo-track.js','15b-box-biliardo-rules.js','16-desk-drift-track.js','20-garage-grid.js','16b-desk-drift-rules.js','17-bagno-sprint-track.js','17b-bagno-sprint-rules.js','18-diagnostics-history.js','19-environment-events.js','21-online-netcode.js','06-game-legacy.js']);
 const blobHash=b=>crypto.createHash('sha1').update(`blob ${b.length}\0`).update(b).digest('hex');
-const OVERLAYS=Object.freeze({"19-environment-events.js": "c1099d8a53043ebe42ba60018e7f87b876e9eb42", "15b-box-biliardo-rules.js": "65e1d9a8a444991c99d0c65242635e1e7b6f4d08", "17b-bagno-sprint-rules.js": "1717e14ebb12061c3e3f7245a45452c532447a8c"});
-const LEGACY_HASH='796cd80f457a7fb4977c267deff8db350dd572c2';
+const OVERLAYS=Object.freeze({"19-environment-events.js": "c1099d8a53043ebe42ba60018e7f87b876e9eb42", "15b-box-biliardo-rules.js": "30a34b311b1a680cddb4199e8657d5cfc98265d0", "17b-bagno-sprint-rules.js": "2678c35eed9075ec510c3375c61d183528de3d42", "06-game-legacy.js": "7b7b8c0f17f3e083d5ac659d8ba669c5baed00c6", "07d-race-safety-logic.js": "276e65e212d39a671f6247d314cf3e0a98bd4d6e", "21-online-netcode.js": "43514cc9436c3f803ae9ba9710740daa54d0b7de", "07c-race-driver-logic.js": "2745208f7aab09323115557ccbfef11ec729665c", "16b-desk-drift-rules.js": "506b05c69b04eaff1876ff93152a28c40ce641ae"});
+const LEGACY_HASH='7b7b8c0f17f3e083d5ac659d8ba669c5baed00c6';
 function patchLegacy(s){
  const replace=(a,b)=>{if(s.split(a).length!==2)throw Error('Engine adapter incompatible: '+a.slice(0,80));s=s.replace(a,b);};
  // Keep worldInit's exact colliders, but skip painting and static sprite work.
  replace('paintWorld();paintBridgeDeck();','');
  replace('function onlineSend(obj){if(onlineSocket?.readyState===WebSocket.OPEN)onlineSocket.send(JSON.stringify(obj));}','function onlineSend(){}');
  replace('for(const o of props)prepareRaceProp(o);','');
- replace('const carIndex=own?own.car:i===0?pr:mode===\'online\'?i%7:opponents[i-1]','const carIndex=own?own.car:mode===\'online\'?i%7:i===0?pr:opponents[i-1]');
  replace('function inputFor(c){const ctl=',"function inputFor(c){if(race?.mode==='online'&&onlineSession?.members[c.id])return onlineHostInput(c);const ctl=");
  replace('v&&performance.now()-v.at<500?{steer:v.steer,gas:v.gas,brake:v.brake}:{steer:0,gas:false,brake:true}','v&&performance.now()-v.at<500?{steer:v.steer,gas:v.gas,brake:v.brake}:{steer:0,gas:false,brake:false}');
- // Reuse the original network serialization. Capture it internally instead of
- // transmitting it over an imaginary WebSocket. The server owns race.time.
- replace('function onlineBroadcast(dt){','function authoritativeSnapshot(){');
- replace('if(performance.now()-onlineLastSnapshot<TTR_NET.snapshotIntervalMs)return;\n onlineLastSnapshot=performance.now();','');
- replace("onlineSend({type:'snapshot',state:{trackId:race.trackId,environment:","return {trackId:race.trackId,environment:");
- replace('bathBrushOil:!!o.bathBrushOil}))}});','bathBrushOil:!!o.bathBrushOil})),finished:race.finished};');
+ // Execute the same simulation as offline, never the guest rendering loop.
+ replace("if(race.mode==='online')return;if(race.paused", "if(race.mode==='online'&&!onlineSession?.host)return;if(race.paused");
+ // No network, rendering or audio side effects in the authoritative VM.
  // No client UI startup or debug API in the engine process.
  const marker='onlineWire();worldInit();window.TTRAssets?.ready.then';
  if(s.split(marker).length!==2)throw Error('Engine startup marker missing');
@@ -41,7 +37,7 @@ function patchLegacy(s){
    item(slot){const c=race.cars[slot];if(onlineSession.allLoaded&&onlineSession.members[slot]&&c&&!c.done&&!race.finished&&race.countdown<=0)useItem(c);},
    leave(slot){onlineSession.members[slot]=null;delete onlineRemoteInputs[slot];if(race.player.id===slot){const next=onlineSession.members.find(Boolean);if(next)race.player=race.cars[next.slot];}},
    step(n){for(let i=0;i<n&&!race.finished;i++){globalThis.__clock+=1000/60;update(1/60,false);globalThis.__tick++;}},
-   state(){const s=authoritativeSnapshot();s.tick=globalThis.__tick;return s;},
+   state(){const s=onlineAuthoritativeState();s.tick=globalThis.__tick;return s;},
    results(){return race.cars.map(c=>({id:c.id,done:c.done,finishTime:c.finishTime??null}));}
  });
  })();\n`;
@@ -49,7 +45,7 @@ function patchLegacy(s){
 }
 function loadScripts(root=ROOT){
  const version=fs.readFileSync(path.join(root,'version.txt'),'utf8').trim();if(version!==BUILD)throw Error('Wrong engine source version '+version);
- return MODULES.map(name=>{const file=fs.readFileSync(path.join(root,'js',name));if(OVERLAYS[name]&&blobHash(file)!==OVERLAYS[name])throw Error('Overlay hash mismatch: '+name);if(name==='06-game-legacy.js'&&blobHash(file)!==LEGACY_HASH)throw Error('Legacy source hash differs from verified .148 package');return new vm.Script(name==='06-game-legacy.js'?patchLegacy(file.toString('utf8')):file.toString('utf8'),{filename:name});});
+ return MODULES.map(name=>{const file=fs.readFileSync(path.join(root,'js',name));if(OVERLAYS[name]&&blobHash(file)!==OVERLAYS[name])throw Error('Overlay hash mismatch: '+name);if(name==='06-game-legacy.js'&&blobHash(file)!==LEGACY_HASH)throw Error('Legacy source hash differs from verified .153 overlay');return new vm.Script(name==='06-game-legacy.js'?patchLegacy(file.toString('utf8')):file.toString('utf8'),{filename:name});});
 }
 function makeContext(){
  const noop=()=>{},canvas=Object.freeze({clearRect:noop});
@@ -87,13 +83,13 @@ function makeFactory(scripts){
 function verify(factory){
  const results=[];
  for(const track of TRACKS){const members=[{slot:0,car:19,name:'A',ready:true,host:true},{slot:1,car:18,name:'B',ready:true,host:false}],sim=factory({track,capacity:4,members},{verification:true});
- console.log(`[preflight] testing ${track}`);
+ console.log(`[preflight] testing ${track}`);const benchStart=performance.now();
  const initial=sim.state();sim.step(12);if(sim.state().countdown!==initial.countdown)throw Error('Countdown advanced before load: '+track);
  sim.loaded();for(let i=0;i<600;i++){sim.input(0,{steer:0,gas:true,brake:false});sim.input(1,{steer:.2,gas:true,brake:false});sim.step(2);}
  const st=sim.state();if(st.trackId!==track||st.cars.length!==4||!st.cars.every(c=>[c.x,c.y,c.a,c.s,c.p].every(Number.isFinite))||st.time<15||!st.environment||st.environment.e<15||st.environment.n<1)throw Error('Invalid live simulation '+track);
  if(Math.hypot(st.cars[0].x-initial.cars[0].x,st.cars[0].y-initial.cars[0].y)<1&&st.cars[0].sr===0)throw Error('No human movement '+track);
  sim.leave(0);sim.input(1,{steer:0,gas:true,brake:false});sim.step(2);if(sim.state().tick<=st.tick)throw Error('Host departure stopped simulation '+track);
- results.push({track,tick:st.tick,events:st.environment.n,bytes:Buffer.byteLength(JSON.stringify(st))});console.log(`[preflight] PASS ${track}: ${st.tick} ticks, ${st.environment.n} events`);}
+ results.push({track,tick:st.tick,events:st.environment.n,bytes:Buffer.byteLength(JSON.stringify(st)),elapsedMs:+(performance.now()-benchStart).toFixed(1)});console.log(`[preflight] PASS ${track}: ${st.tick} ticks, ${st.environment.n} events`);}
  return results;
 }
 module.exports={ROOT,REV,BUILD,TRACKS,MODULES,OVERLAYS,LEGACY_HASH,blobHash,patchLegacy,loadScripts,makeFactory,verify};
