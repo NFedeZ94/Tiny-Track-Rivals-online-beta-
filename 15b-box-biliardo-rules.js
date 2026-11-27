@@ -209,7 +209,7 @@
    let d=K.angleDiff(Math.atan2(target.y-c.y,target.x-c.x),c.a);const steer=K.clamp(d*(hard?3.7:3.4),-1,1);
    if(c.reverseRecovery>0)return {steer:-steer||1,gas:false,brake:true};
    const bend=Math.max(Math.abs(K.angleDiff(B.tangent(p+.012),B.tangent(p))),Math.abs(K.angleDiff(B.tangent(p+.023),B.tangent(p+.008))));
-   const cap=c.profile.max*s.pace*(c.boost>0?1.42:1);let desired=cap*(1-K.clamp((bend-(hard?.36:.16))*(hard?.21:.65),0,hard?.32:.60));
+   const cap=c.profile.max*(c.boost>0?1.42:1);let desired=cap*(1-K.clamp((bend-(hard?.36:.16))*(hard?.21:.65),0,hard?.32:.60));
    if(Math.abs(d)>(hard?.52:.34))desired=Math.min(desired,cap*(1-K.clamp((Math.abs(d)-(hard?.44:.28))*(hard?.48:.68),0,.66)));
    if(branch)desired=Math.min(desired,Math.max(105,cap*(hard?(K.distance(c,B.entryPocket)<100?.88:.95):.74)));
    if(leader&&gap<60&&!(c.aiPassUntil>race.time))desired=Math.min(desired,Math.max(80,leader.speed));
