@@ -7,6 +7,7 @@ const REV='c8b05794a344fab64f83d2f5ad6ca66e530f2b27',BUILD='0.13.6.148';
 const TRACKS=Object.freeze(['colazione-turbo','box-di-biliardo','desk-drift','bagno-sprint','garage-grid']);
 const MODULES=Object.freeze(['01-core.js','07a-race-grid-logic.js','07b-race-powerups-logic.js','07c-race-driver-logic.js','07d-race-safety-logic.js','08a-race-progress-logic.js','08b-race-timing-logic.js','09a-race-cpu-logic.js','09b-race-oil-logic.js','09c-race-pickup-logic.js','09d-race-collision-logic.js','11b-race-flow.js','15-box-biliardo-track.js','15b-box-biliardo-rules.js','16-desk-drift-track.js','20-garage-grid.js','16b-desk-drift-rules.js','17-bagno-sprint-track.js','17b-bagno-sprint-rules.js','18-diagnostics-history.js','19-environment-events.js','06-game-legacy.js']);
 const blobHash=b=>crypto.createHash('sha1').update(`blob ${b.length}\0`).update(b).digest('hex');
+const OVERLAYS=Object.freeze({"19-environment-events.js": "c1099d8a53043ebe42ba60018e7f87b876e9eb42", "15b-box-biliardo-rules.js": "65e1d9a8a444991c99d0c65242635e1e7b6f4d08", "17b-bagno-sprint-rules.js": "1717e14ebb12061c3e3f7245a45452c532447a8c"});
 const LEGACY_HASH='796cd80f457a7fb4977c267deff8db350dd572c2';
 function patchLegacy(s){
  const replace=(a,b)=>{if(s.split(a).length!==2)throw Error('Engine adapter incompatible: '+a.slice(0,80));s=s.replace(a,b);};
@@ -32,6 +33,7 @@ function patchLegacy(s){
      onlineSession={host:true,slot:config.members[0].slot,capacity:config.capacity,members:Array(config.capacity).fill(null),trackId:config.track,allLoaded:false};
      for(const m of config.members)onlineSession.members[m.slot]=m;
      onlineRemoteInputs={};selectedTrackId=config.track;worldInit();initRace('online');
+     if(config.members.some(m=>!profiles[m.car]||race.cars[m.slot]?.profile.id!==profiles[m.car].id))throw Error('Incorrect human car profile');
      return {track:race.trackId,carCount:race.cars.length};
    },
    loaded(){onlineSession.allLoaded=true;},
@@ -47,7 +49,7 @@ function patchLegacy(s){
 }
 function loadScripts(root=ROOT){
  const version=fs.readFileSync(path.join(root,'version.txt'),'utf8').trim();if(version!==BUILD)throw Error('Wrong engine source version '+version);
- return MODULES.map(name=>{const file=fs.readFileSync(path.join(root,'js',name));if(name==='06-game-legacy.js'&&blobHash(file)!==LEGACY_HASH)throw Error('Legacy source hash differs from verified .148 package');return new vm.Script(name==='06-game-legacy.js'?patchLegacy(file.toString('utf8')):file.toString('utf8'),{filename:name});});
+ return MODULES.map(name=>{const file=fs.readFileSync(path.join(root,'js',name));if(OVERLAYS[name]&&blobHash(file)!==OVERLAYS[name])throw Error('Overlay hash mismatch: '+name);if(name==='06-game-legacy.js'&&blobHash(file)!==LEGACY_HASH)throw Error('Legacy source hash differs from verified .148 package');return new vm.Script(name==='06-game-legacy.js'?patchLegacy(file.toString('utf8')):file.toString('utf8'),{filename:name});});
 }
 function makeContext(){
  const noop=()=>{},canvas=Object.freeze({clearRect:noop});
@@ -84,7 +86,7 @@ function makeFactory(scripts){
 }
 function verify(factory){
  const results=[];
- for(const track of TRACKS){const members=[{slot:0,car:0,name:'A',ready:true,host:true},{slot:1,car:1,name:'B',ready:true,host:false}],sim=factory({track,capacity:4,members},{verification:true});
+ for(const track of TRACKS){const members=[{slot:0,car:19,name:'A',ready:true,host:true},{slot:1,car:18,name:'B',ready:true,host:false}],sim=factory({track,capacity:4,members},{verification:true});
  console.log(`[preflight] testing ${track}`);
  const initial=sim.state();sim.step(12);if(sim.state().countdown!==initial.countdown)throw Error('Countdown advanced before load: '+track);
  sim.loaded();for(let i=0;i<600;i++){sim.input(0,{steer:0,gas:true,brake:false});sim.input(1,{steer:.2,gas:true,brake:false});sim.step(2);}
@@ -94,4 +96,4 @@ function verify(factory){
  results.push({track,tick:st.tick,events:st.environment.n,bytes:Buffer.byteLength(JSON.stringify(st))});console.log(`[preflight] PASS ${track}: ${st.tick} ticks, ${st.environment.n} events`);}
  return results;
 }
-module.exports={ROOT,REV,BUILD,TRACKS,MODULES,LEGACY_HASH,blobHash,patchLegacy,loadScripts,makeFactory,verify};
+module.exports={ROOT,REV,BUILD,TRACKS,MODULES,OVERLAYS,LEGACY_HASH,blobHash,patchLegacy,loadScripts,makeFactory,verify};

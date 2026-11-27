@@ -2,7 +2,8 @@
 // Full-game beta: Node owns simulation; room organizer has lobby privileges only.
 const http=require('node:http'),crypto=require('node:crypto'),{performance}=require('node:perf_hooks');
 const {TRACKS,REV,loadScripts,makeFactory,verify}=require('./engine.cjs');
-const BUILD='v0.13.6.149-online-authoritative',FEATURE='full-authoritative-149';
+const BUILD='v0.13.6.151-online-authoritative',FEATURE='full-authoritative-151';
+const CAR_COUNT=20;
 const CAPACITIES=[2,4,6,8],ALPHABET='ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
 const DT=1000/60,MAX_MSG=24000,MAX_ROOMS=24,MAX_PEERS=96;
 function createService(factory,{acceptWebSocket,origins=['https://nfedez94.github.io'],maxActive=1}={}){
@@ -18,7 +19,7 @@ function createService(factory,{acceptWebSocket,origins=['https://nfedez94.githu
  const error=(p,message)=>{counters.rejected++;send(p,{type:'error',message});};
  const code=()=>{let value;do{value=Array.from({length:6},()=>ALPHABET[crypto.randomInt(ALPHABET.length)]).join('');}while(rooms.has(value));return value;};
  const safeName=s=>String(s??'Pilota').replace(/[^\p{L}\p{N}_. -]/gu,'').trim().slice(0,18)||'Pilota';
- const carIndex=n=>Number.isInteger(n)?Math.max(0,Math.min(4,n)):0;
+ const carIndex=n=>Number.isInteger(n)?Math.max(0,Math.min(CAR_COUNT-1,n)):0;
  function closeRoom(r,reason){broadcast(r,{type:'room_closed',reason});for(const p of r.players.values()){p.room=null;p.slot=null;}r.players.clear();r.sim=null;rooms.delete(r.code);}
  function readyToRun(r){if(!r.sim||r.running||r.finished||!r.players.size||![...r.players.values()].every(p=>p.loaded))return;
    try{r.sim.loaded();r.running=true;r.accum=0;r.startedAt=performance.now();r.lastSnapshot=0;broadcast(r,{type:'all_loaded',track:r.track});snapshot(r);}catch(e){counters.engineErrors++;console.error('TTR load barrier',e);closeRoom(r,'Errore di avvio della simulazione.');}}
@@ -37,16 +38,17 @@ function createService(factory,{acceptWebSocket,origins=['https://nfedez94.githu
    // Neither organizer nor guest can supply physics, state, time or finish.
    if(['snapshot','state','finish','remote_input','remote_action'].includes(d.type))return error(p,'Stato calcolato esclusivamente dal server.');
    if(!p.room&&['create','find_public','join'].includes(d.type)){
-     if(d.protocol!==2||d.eventVersion!==149)return error(p,'Serve il gioco .149 con Online Beta.');
+     if(d.protocol!==2||d.eventVersion!==151)return error(p,'Serve il gioco .151 con Online Beta.');
      const capacity=CAPACITIES.includes(d.capacity)?d.capacity:4;let r;
      if(d.type==='join'){r=rooms.get(String(d.code??'').trim().toUpperCase());if(!r||r.sim||r.players.size>=r.capacity)return error(p,'Sala non disponibile.');}
      else {if(d.type==='find_public')r=[...rooms.values()].find(x=>x.public&&!x.sim&&x.capacity===capacity&&x.players.size<x.capacity);
-       if(!r){if(rooms.size>=MAX_ROOMS)return error(p,'Server pieno.');r={code:code(),capacity,public:d.type==='find_public',players:new Map(),organizer:null,sim:null,running:false,finished:false,createdAt:now,lastActive:now,lastSnapshot:0,accum:0};rooms.set(r.code,r);counters.created++;}}
+       if(!r){if(rooms.size>=MAX_ROOMS)return error(p,'Server pieno.');r={code:code(),capacity,public:d.type==='find_public',players:new Map(),organizer:null,track:TRACKS.includes(d.track)?d.track:TRACKS[0],sim:null,running:false,finished:false,createdAt:now,lastActive:now,lastSnapshot:0,accum:0};rooms.set(r.code,r);counters.created++;}}
      const slot=Array.from({length:r.capacity},(_,i)=>i).find(i=>!r.players.has(i));if(slot===undefined)return error(p,'Sala piena.');
      Object.assign(p,{room:r,slot,name:safeName(d.name),car:carIndex(d.car),ready:false,loaded:false,lastSeq:-1,lastAction:-Infinity,lastInput:-Infinity});r.players.set(slot,p);r.organizer??=p;r.lastActive=now;
      send(p,{type:'joined',slot,code:r.code,host:p===r.organizer,protocol:2,authority:'server'});broadcast(r,roomState(r));return;
    }
    const r=p.room;if(!r)return error(p,'Entra prima in una sala.');r.lastActive=now;
+   if(d.type==='track'&&!r.sim){if(p!==r.organizer||!TRACKS.includes(d.track))return error(p,'Circuito non disponibile.');r.track=d.track;broadcast(r,roomState(r));return;}
    if(d.type==='ready'&&!r.sim){p.ready=d.ready!==false;broadcast(r,roomState(r));return;}
    if(d.type==='car'&&!r.sim){p.car=carIndex(d.car);p.ready=false;broadcast(r,roomState(r));return;}
    if(d.type==='start'&&!r.sim){
@@ -68,13 +70,13 @@ function createService(factory,{acceptWebSocket,origins=['https://nfedez94.githu
    if(d.type==='action'&&r.running&&!r.finished&&p.loaded&&d.action==='item'){if(now-p.lastAction<240)return;p.lastAction=now;r.sim.item(p.slot);return;}
    return error(p,'Operazione non disponibile in questo stato.');
  }
- function health(){return {ok:true,build:BUILD,protocol:2,authority:'server',engineCommit:REV,tickHz:60,snapshotHz:20,tracks:TRACKS,rooms:rooms.size,activeRaces:activeCount(),maxActiveRaces:maxActive,peers:peers.size,...counters,features:[FEATURE,'rtt_ping','server_authoritative','cpu_on_disconnect','load_barrier','environment_events']};}
+ function health(){return {ok:true,build:BUILD,protocol:2,authority:'server',carCount:CAR_COUNT,engineCommit:REV,tickHz:60,snapshotHz:20,tracks:TRACKS,rooms:rooms.size,activeRaces:activeCount(),maxActiveRaces:maxActive,peers:peers.size,...counters,features:[FEATURE,'rtt_ping','server_authoritative','cpu_on_disconnect','load_barrier','environment_events']};}
  const server=http.createServer((req,res)=>{const route=new URL(req.url,'http://localhost').pathname;const headers={'Cache-Control':'no-store','Content-Type':'application/json; charset=utf-8','X-Content-Type-Options':'nosniff'};if(req.method!=='GET'){res.writeHead(405,headers);return res.end(JSON.stringify({error:'Method not allowed'}));}
-   if(route==='/health'||route==='/metrics'){res.writeHead(200,headers);return res.end(JSON.stringify(health()));}if(route==='/'){res.writeHead(200,headers);return res.end(JSON.stringify({service:'Tiny Track Rivals Online Beta',build:BUILD,client:'Usa il gioco .149 e /ws-beta',health:'/health'}));}res.writeHead(404,headers);res.end(JSON.stringify({error:'Not found'}));});
+   if(route==='/health'||route==='/metrics'){res.writeHead(200,headers);return res.end(JSON.stringify(health()));}if(route==='/'){res.writeHead(200,headers);return res.end(JSON.stringify({service:'Tiny Track Rivals Online Beta',build:BUILD,client:'Usa il gioco .151 e /ws-beta',health:'/health'}));}res.writeHead(404,headers);res.end(JSON.stringify({error:'Not found'}));});
  server.on('upgrade',(req,socket,head)=>{const route=new URL(req.url,'http://localhost').pathname;if(route!=='/ws-beta'){socket.end('HTTP/1.1 404 Not Found\r\nConnection: close\r\n\r\n');return;}
    const origin=String(req.headers.origin||'');if(!allowed.has(origin)){socket.end('HTTP/1.1 403 Forbidden\r\nConnection: close\r\n\r\n');return;}
    if(peers.size>=MAX_PEERS){socket.end('HTTP/1.1 503 Service Unavailable\r\nConnection: close\r\n\r\n');return;}
-   const p={ws:null,room:null,slot:null,rateAt:performance.now(),rateCount:0};const ws=accept(req,socket,head,{maxMessageBytes:MAX_MSG,onMessage:raw=>{if(p.ws)onMessage(p,raw);},onClose:()=>{try{depart(p);}finally{peers.delete(p);}}});if(!ws)return;p.ws=ws;peers.add(p);send(p,{type:'hello',protocol:2,build:BUILD,authority:'server',requiredClient:'0.13.6.149',features:[FEATURE,'rtt_ping','server_authoritative'],tickHz:60,snapshotHz:20});
+   const p={ws:null,room:null,slot:null,rateAt:performance.now(),rateCount:0};const ws=accept(req,socket,head,{maxMessageBytes:MAX_MSG,onMessage:raw=>{if(p.ws)onMessage(p,raw);},onClose:()=>{try{depart(p);}finally{peers.delete(p);}}});if(!ws)return;p.ws=ws;peers.add(p);send(p,{type:'hello',protocol:2,build:BUILD,authority:'server',requiredClient:'0.13.6.151',carCount:CAR_COUNT,tracks:TRACKS,features:[FEATURE,'rtt_ping','server_authoritative'],tickHz:60,snapshotHz:20});
  });
  let last=performance.now();const timer=setInterval(()=>{const now=performance.now(),elapsed=Math.min(200,Math.max(0,now-last));last=now;
    for(const r of rooms.values()){if(!r.sim||!r.running||r.finished)continue;

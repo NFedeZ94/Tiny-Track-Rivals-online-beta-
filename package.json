@@ -1,8 +1,8 @@
 {
   "name": "tiny-track-rivals-authoritative-beta",
   "private": true,
-  "version": "0.1.49",
-  "description": "TTR authoritative shared game engine, full client v0.13.6.149",
+  "version": "0.1.51",
+  "description": "TTR authoritative shared game engine, full client v0.13.6.151",
   "scripts": {"build":"node sync-engine.cjs", "start":"node server.js", "verify":"node -e \"const e=require('./engine.cjs');console.log(e.verify(e.makeFactory(e.loadScripts())))\""},
   "engines": {"node": ">=22"},
   "license": "UNLICENSED"
